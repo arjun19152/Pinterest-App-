@@ -39,6 +39,11 @@
             border-radius: 8px;
             padding: 15px;
             background-color: #fafafa;
+            min-height: 200px; /* Added to prevent collapse on load */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
 
         .image-viewer img {
@@ -54,6 +59,8 @@
             justify-content: center;
             gap: 20px;
         }
+        
+        /* ... (rest of your existing CSS is fine) ... */
 
         .btn {
             padding: 12px 25px;
@@ -87,6 +94,25 @@
             background-color: #e9ecef;
             border-radius: 6px;
             margin-top: 10px;
+        }
+
+        .file-input-wrapper {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        .file-input-wrapper label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: #1a73e8;
+        }
+
+        .review-controls {
+            display: none; /* Hide controls until images are loaded */
         }
 
         .summary {
@@ -124,13 +150,26 @@
 <div class="container">
     <h1>🖼️ Image Review Dashboard</h1>
 
-    <div id="image-viewer" class="image-viewer">
-        </div>
-
-    <div class="status-message">
-        <p id="current-image-status">Loading images...</p>
+    <div class="file-input-wrapper">
+        <label for="folder-selector">📂 Select your **Downloaded Images** folder to begin:</label>
+        <input type="file" id="folder-selector" webkitdirectory directory multiple accept="image/*" />
     </div>
 
+    <div id="image-viewer" class="image-viewer">
+        <p>Please select the folder containing the images you wish to review.</p>
+    </div>
+
+    <div class="status-message">
+        <p id="current-image-status">Awaiting folder selection...</p>
+    </div>
+    
+    <div id="review-controls" class="review-controls">
+        <div class="controls">
+            <button class="btn btn-approve" onclick="moveImage('approve')">✅ Approve</button>
+            <button class="btn btn-delete" onclick="moveImage('delete')">🗑️ Delete</button>
+        </div>
+    </div>
+    
     <div class="summary">
         <h2>Review Summary (Client-Side)</h2>
         <p>
@@ -148,20 +187,9 @@
 </div>
 
 <script>
-    // --- Configuration ---
-    // !!! IMPORTANT: You must update this array with the actual list of files
-    // in your 'Downloaded Images' folder every time you add new images.
-    // The path should be relative to where your index.html is.
-    const ALL_DOWNLOADED_IMAGES = [
-        "Downloaded Images/image_1.jpg",
-        "Downloaded Images/image_2.png",
-        "Downloaded Images/image_3.gif",
-        "Downloaded Images/photo_4.jpeg",
-        "Downloaded Images/file_5.webp",
-        // Add all your image paths here...
-    ];
-
     // --- State Variables (Managed in localStorage) ---
+    // ALL_DOWNLOADED_IMAGES will now be populated dynamically
+    let ALL_DOWNLOADED_FILES = []; 
     let downloadedImages = [];
     let approvedImages = [];
     let deletedImages = [];
@@ -173,24 +201,74 @@
     function loadState() {
         const storedApproved = localStorage.getItem('approvedImages');
         const storedDeleted = localStorage.getItem('deletedImages');
+        const storedAllFiles = localStorage.getItem('allDownloadedFiles');
 
         approvedImages = storedApproved ? JSON.parse(storedApproved) : [];
         deletedImages = storedDeleted ? JSON.parse(storedDeleted) : [];
-
-        // Filter out any images that have already been approved or deleted
-        downloadedImages = ALL_DOWNLOADED_IMAGES.filter(image =>
-            !approvedImages.includes(image) && !deletedImages.includes(image)
+        ALL_DOWNLOADED_FILES = storedAllFiles ? JSON.parse(storedAllFiles) : [];
+        
+        // This array will hold the actual File objects that can be displayed
+        // We only use the filenames from localStorage for the lists
+        downloadedImages = ALL_DOWNLOADED_FILES.filter(filename =>
+            !approvedImages.includes(filename) && !deletedImages.includes(filename)
         );
         
-        // Start from the first remaining image
         currentIndex = 0;
     }
 
-    // Save state to local storage
+    // Save state to local storage (only filenames for persistence)
     function saveState() {
         localStorage.setItem('approvedImages', JSON.stringify(approvedImages));
         localStorage.setItem('deletedImages', JSON.stringify(deletedImages));
+        // Save the full list of file names that were originally loaded
+        localStorage.setItem('allDownloadedFiles', JSON.stringify(ALL_DOWNLOADED_FILES));
     }
+
+    // New function to handle folder selection
+    function handleFolderSelection(event) {
+        const files = event.target.files;
+        if (files.length === 0) return;
+
+        // Reset state for new folder selection
+        ALL_DOWNLOADED_FILES = [];
+        
+        // Filter for images and map them to their relative path (which we'll use as a unique ID)
+        const imageRegex = /\.(jpe?g|png|gif|webp)$/i;
+        for (const file of files) {
+            // file.webkitRelativePath gives the path *relative to the selected folder*
+            if (file.webkitRelativePath && imageRegex.test(file.name)) {
+                // Store the full File object temporarily, and its relative path as the ID
+                ALL_DOWNLOADED_FILES.push({
+                    fileObject: file,
+                    path: file.webkitRelativePath // e.g., 'Downloaded Images/image_1.jpg'
+                });
+            }
+        }
+
+        if (ALL_DOWNLOADED_FILES.length === 0) {
+            document.getElementById('image-viewer').innerHTML = '<p style="color: red;">⚠️ No images found in the selected folder.</p>';
+            document.getElementById('current-image-status').textContent = "No images loaded.";
+            document.getElementById('review-controls').style.display = 'none';
+            return;
+        }
+
+        // Save the list of paths to localStorage for persistence
+        localStorage.setItem('allDownloadedFiles', JSON.stringify(ALL_DOWNLOADED_FILES.map(f => f.path)));
+        
+        // Load the state, which will now filter the paths against approved/deleted
+        loadState();
+        
+        // We need to re-filter ALL_DOWNLOADED_FILES to match the paths in downloadedImages
+        const remainingPaths = downloadedImages; // this has the paths from loadState
+        
+        downloadedImages = ALL_DOWNLOADED_FILES.filter(fileObj => 
+            remainingPaths.includes(fileObj.path)
+        );
+        
+        document.getElementById('review-controls').style.display = 'flex';
+        renderViewer();
+    }
+
 
     // Render the current image and controls
     function renderViewer() {
@@ -200,21 +278,23 @@
         if (downloadedImages.length === 0) {
             viewer.innerHTML = `<p>✅ **All images reviewed!** Great job. Check the summary below for the final lists.</p>`;
             status.textContent = "Review Complete!";
+            document.getElementById('review-controls').style.display = 'none';
             renderSummary();
             return;
         }
 
-        const currentImage = downloadedImages[currentIndex];
+        const currentImageFile = downloadedImages[currentIndex].fileObject;
+        const currentImagePath = downloadedImages[currentIndex].path;
+        
+        // Create a temporary URL for the File object to display the image
+        const imageUrl = URL.createObjectURL(currentImageFile);
         
         viewer.innerHTML = `
-            <img src="${currentImage}" alt="Image to review">
-            <p><strong>Reviewing:</strong> ${currentImage.split('/').pop()}</p>
-            <div class="controls">
-                <button class="btn btn-approve" onclick="moveImage('approve')">✅ Approve</button>
-                <button class="btn btn-delete" onclick="moveImage('delete')">🗑️ Delete</button>
-            </div>
+            <img id="current-img" src="${imageUrl}" alt="Image to review" onload="URL.revokeObjectURL(this.src)">
+            <p><strong>Reviewing:</strong> ${currentImageFile.name}</p>
         `;
-
+        // The onload revokes the URL as soon as the image is loaded to free up memory
+        
         status.textContent = `Reviewing Image ${currentIndex + 1} of ${downloadedImages.length}`;
         renderSummary();
     }
@@ -223,22 +303,22 @@
     function moveImage(action) {
         if (downloadedImages.length === 0) return;
 
-        const imageToMove = downloadedImages[currentIndex];
+        const imageToMovePath = downloadedImages[currentIndex].path;
 
         if (action === 'approve') {
-            approvedImages.push(imageToMove);
+            approvedImages.push(imageToMovePath);
         } else if (action === 'delete') {
-            deletedImages.push(imageToMove);
+            deletedImages.push(imageToMovePath);
         }
 
-        // Remove from the downloaded list
+        // Remove the object from the downloaded list
         downloadedImages.splice(currentIndex, 1);
 
-        // Don't increment index, because the next image is now at the current index
-        // If it was the last image, index will now be out of bounds, which is fine
-        // because the next renderViewer() will detect the empty array.
+        // Manage index
         if (currentIndex >= downloadedImages.length && downloadedImages.length > 0) {
-            currentIndex = downloadedImages.length - 1; // Go back one if we deleted the last
+            currentIndex = downloadedImages.length - 1; 
+        } else if (downloadedImages.length === 0) {
+            currentIndex = 0; // Prepare for the "all reviewed" state
         }
 
         saveState();
@@ -255,16 +335,34 @@
         const deletedUl = document.getElementById('deleted-list');
         const downloadedUl = document.getElementById('downloaded-list');
         
+        // Use the stored full paths for the summary lists
         approvedUl.innerHTML = approvedImages.map(img => `<li class="approved">Move **${img.split('/').pop()}** to: <code>Approved Images/</code></li>`).join('');
         deletedUl.innerHTML = deletedImages.map(img => `<li class="deleted">Move **${img.split('/').pop()}** to: <code>Deleted Images/</code></li>`).join('');
-        downloadedUl.innerHTML = downloadedImages.map(img => `<li class="downloaded">Remaining: <code>${img}</code></li>`).join('');
+        downloadedUl.innerHTML = downloadedImages.map(img => `<li class="downloaded">Remaining: <code>${img.path}</code></li>`).join('');
     }
 
 
     // --- Initialization ---
     document.addEventListener('DOMContentLoaded', () => {
+        const folderSelector = document.getElementById('folder-selector');
+        folderSelector.addEventListener('change', handleFolderSelection);
+        
+        // Attempt to load previous state from localStorage
         loadState();
-        renderViewer();
+        
+        // If there are previously loaded files, assume the folder has been selected
+        // Note: This relies on the user selecting the SAME folder on refresh.
+        if (ALL_DOWNLOADED_FILES.length > 0) {
+            // Need to reload the File objects from a new selection if you want to display them, 
+            // but for a simple refresh, we just display the summary and status
+            document.getElementById('image-viewer').innerHTML = '<p>Images from a previous session are loaded in the summary below. Please **re-select the folder** to continue the review.</p>';
+            document.getElementById('review-controls').style.display = 'none';
+            renderSummary();
+            
+        } else {
+            // Initial state: awaiting folder selection
+            renderSummary(); // Render empty summaries
+        }
     });
 </script>
 
