@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Review & Sorting Tool</title>
+    <style>
+        /* CSS is embedded here for simplicity */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+            background-color: #f0f2f5;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #1a73e8;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .image-viewer {
+            text-align: center;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            background-color: #fafafa;
+        }
+
+        .image-viewer img {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+            margin-bottom: 15px;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-approve {
+            background-color: #008000; /* Green */
+            color: white;
+        }
+
+        .btn-delete {
+            background-color: #dc3545; /* Red */
+            color: white;
+        }
+        
+        .btn-approve:hover { background-color: #006400; }
+        .btn-delete:hover { background-color: #c82333; }
+
+        .status-message {
+            text-align: center;
+            font-size: 1.1em;
+            color: #6a6a6a;
+            padding: 10px;
+            background-color: #e9ecef;
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+
+        .summary {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .summary h2 {
+            color: #1a73e8;
+            margin-bottom: 15px;
+        }
+
+        .summary ul {
+            list-style: none;
+            padding: 0;
+        }
+
+        .summary li {
+            background: #f8f9fa;
+            border-left: 5px solid;
+            padding: 8px 15px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+        }
+
+        .summary li.approved { border-left-color: #28a745; }
+        .summary li.deleted { border-left-color: #dc3545; }
+        .summary li.downloaded { border-left-color: #ffc107; }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🖼️ Image Review Dashboard</h1>
+
+    <div id="image-viewer" class="image-viewer">
+        </div>
+
+    <div class="status-message">
+        <p id="current-image-status">Loading images...</p>
+    </div>
+
+    <div class="summary">
+        <h2>Review Summary (Client-Side)</h2>
+        <p>
+            **IMPORTANT:** These changes are only saved in your browser's memory (`localStorage`). You must **manually** move these files in your local git repository based on the lists below, then commit and push to GitHub.
+        </p>
+        <h3>✅ Approved Images: (<span id="approved-count">0</span>)</h3>
+        <ul id="approved-list"></ul>
+
+        <h3>🗑️ Deleted Images: (<span id="deleted-count">0</span>)</h3>
+        <ul id="deleted-list"></ul>
+
+        <h3>⬇️ Remaining Downloaded: (<span id="downloaded-count">0</span>)</h3>
+        <ul id="downloaded-list"></ul>
+    </div>
+</div>
+
+<script>
+    // --- Configuration ---
+    // !!! IMPORTANT: You must update this array with the actual list of files
+    // in your 'Downloaded Images' folder every time you add new images.
+    // The path should be relative to where your index.html is.
+    const ALL_DOWNLOADED_IMAGES = [
+        "Downloaded Images/image_1.jpg",
+        "Downloaded Images/image_2.png",
+        "Downloaded Images/image_3.gif",
+        "Downloaded Images/photo_4.jpeg",
+        "Downloaded Images/file_5.webp",
+        // Add all your image paths here...
+    ];
+
+    // --- State Variables (Managed in localStorage) ---
+    let downloadedImages = [];
+    let approvedImages = [];
+    let deletedImages = [];
+    let currentIndex = 0;
+
+    // --- Helper Functions ---
+
+    // Load state from local storage or initialize
+    function loadState() {
+        const storedApproved = localStorage.getItem('approvedImages');
+        const storedDeleted = localStorage.getItem('deletedImages');
+
+        approvedImages = storedApproved ? JSON.parse(storedApproved) : [];
+        deletedImages = storedDeleted ? JSON.parse(storedDeleted) : [];
+
+        // Filter out any images that have already been approved or deleted
+        downloadedImages = ALL_DOWNLOADED_IMAGES.filter(image =>
+            !approvedImages.includes(image) && !deletedImages.includes(image)
+        );
+        
+        // Start from the first remaining image
+        currentIndex = 0;
+    }
+
+    // Save state to local storage
+    function saveState() {
+        localStorage.setItem('approvedImages', JSON.stringify(approvedImages));
+        localStorage.setItem('deletedImages', JSON.stringify(deletedImages));
+    }
+
+    // Render the current image and controls
+    function renderViewer() {
+        const viewer = document.getElementById('image-viewer');
+        const status = document.getElementById('current-image-status');
+        
+        if (downloadedImages.length === 0) {
+            viewer.innerHTML = `<p>✅ **All images reviewed!** Great job. Check the summary below for the final lists.</p>`;
+            status.textContent = "Review Complete!";
+            renderSummary();
+            return;
+        }
+
+        const currentImage = downloadedImages[currentIndex];
+        
+        viewer.innerHTML = `
+            <img src="${currentImage}" alt="Image to review">
+            <p><strong>Reviewing:</strong> ${currentImage.split('/').pop()}</p>
+            <div class="controls">
+                <button class="btn btn-approve" onclick="moveImage('approve')">✅ Approve</button>
+                <button class="btn btn-delete" onclick="moveImage('delete')">🗑️ Delete</button>
+            </div>
+        `;
+
+        status.textContent = `Reviewing Image ${currentIndex + 1} of ${downloadedImages.length}`;
+        renderSummary();
+    }
+
+    // Move the current image to the target folder (in state)
+    function moveImage(action) {
+        if (downloadedImages.length === 0) return;
+
+        const imageToMove = downloadedImages[currentIndex];
+
+        if (action === 'approve') {
+            approvedImages.push(imageToMove);
+        } else if (action === 'delete') {
+            deletedImages.push(imageToMove);
+        }
+
+        // Remove from the downloaded list
+        downloadedImages.splice(currentIndex, 1);
+
+        // Don't increment index, because the next image is now at the current index
+        // If it was the last image, index will now be out of bounds, which is fine
+        // because the next renderViewer() will detect the empty array.
+        if (currentIndex >= downloadedImages.length && downloadedImages.length > 0) {
+            currentIndex = downloadedImages.length - 1; // Go back one if we deleted the last
+        }
+
+        saveState();
+        renderViewer();
+    }
+    
+    // Render the summary lists for the user to manually apply
+    function renderSummary() {
+        document.getElementById('approved-count').textContent = approvedImages.length;
+        document.getElementById('deleted-count').textContent = deletedImages.length;
+        document.getElementById('downloaded-count').textContent = downloadedImages.length;
+        
+        const approvedUl = document.getElementById('approved-list');
+        const deletedUl = document.getElementById('deleted-list');
+        const downloadedUl = document.getElementById('downloaded-list');
+        
+        approvedUl.innerHTML = approvedImages.map(img => `<li class="approved">Move **${img.split('/').pop()}** to: <code>Approved Images/</code></li>`).join('');
+        deletedUl.innerHTML = deletedImages.map(img => `<li class="deleted">Move **${img.split('/').pop()}** to: <code>Deleted Images/</code></li>`).join('');
+        downloadedUl.innerHTML = downloadedImages.map(img => `<li class="downloaded">Remaining: <code>${img}</code></li>`).join('');
+    }
+
+
+    // --- Initialization ---
+    document.addEventListener('DOMContentLoaded', () => {
+        loadState();
+        renderViewer();
+    });
+</script>
+
+</body>
+</html>
